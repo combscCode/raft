@@ -1,9 +1,11 @@
 package common
 
-import "net/rpc"
-import "crypto/rand"
-import "math/big"
-import "fmt"
+import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
+	"net/rpc"
+)
 
 // Nrand returns a random 64 bit integer
 func Nrand() int64 {

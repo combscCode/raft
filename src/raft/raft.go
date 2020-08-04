@@ -4,10 +4,12 @@ import (
 	"common"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/rpc"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Plan of attack
@@ -18,6 +20,28 @@ import (
 
 // After this works, implement elections.
 
+// DebugRaft ...
+const DebugRaft = 0
+
+// DPrintfRaft ...
+func DPrintfRaft(format string, a ...interface{}) (n int, err error) {
+	if DebugRaft > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
+
+// DebugRaft2 ...
+const DebugRaft2 = 1
+
+// DPrintfRaft2 ...
+func DPrintfRaft2(format string, a ...interface{}) (n int, err error) {
+	if DebugRaft2 > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
+
 type leadership int
 
 const (
@@ -25,6 +49,9 @@ const (
 	candidate
 	leader
 )
+
+const electionTimeoutShortest = 150
+const electionTimeoutInterval = 150
 
 // LogEntry is the type that is used for the Raft Log
 type LogEntry string
@@ -35,19 +62,26 @@ type Raftee struct {
 	l                net.Listener
 	companions       []string
 	me               int // this Raftee's candidateId
-	LeadershipStatus leadership
+	leadershipStatus leadership
 	currentTerm      int
 	votedFor         int
 	log              []LogEntry
+	electionTimeout  time.Duration
+	electionTimer    *time.Timer
 	dead             int32 // for testing
 	rpcCount         int32
+	testingID        int64
 }
 
 // NewRaftee initializes a Raftee object
 func NewRaftee(me int, companions []string) *Raftee {
 	raft := &Raftee{}
+	raft.testingID = common.Nrand()
 	raft.companions = companions
 	raft.me = me
+	raft.leadershipStatus = follower
+	raft.electionTimeout = time.Millisecond * time.Duration(rand.Int63n(electionTimeoutInterval)+electionTimeoutShortest)
+	raft.electionTimer = time.AfterFunc(raft.electionTimeout, raft.becomeCandidate)
 	return raft
 }
 
@@ -70,6 +104,29 @@ func (raft *Raftee) appendToOtherLog(address string, toAppend LogEntry) error {
 	reply := &AddToLogReply{}
 	common.Call(address, "Raftee.AddToLog", args, reply)
 	return nil
+}
+
+// becomeCandidate changes the raftee to a candidate and sends out votes.
+func (raft *Raftee) becomeCandidate() {
+	DPrintfRaft2("Begin becomeCandidate for Raftee(%v)\n", raft.me)
+	raft.mu.Lock()
+	if raft.leadershipStatus == candidate {
+		panic(fmt.Sprintf("Something's gone wrong, Raftee(%v) called becomeCandidate() when already candidate.", raft.me))
+	}
+	raft.leadershipStatus = candidate
+	// TODO: Send out votes
+	raft.mu.Unlock()
+	DPrintfRaft2("End becomeCandidate for Raftee(%v)\n", raft.me)
+}
+
+func (raft *Raftee) consumeHeartbeat() {
+	raft.mu.Lock()
+	// if Stop() returns false, the raftee will become a candidate.
+	if raft.electionTimer.Stop() {
+		// If the heartbeat comes before the election timeout is triggered, reset the timeout
+		raft.electionTimer.Reset(raft.electionTimeout)
+	}
+	raft.mu.Unlock()
 }
 
 // Make returns a raftee to an application that wants to use
@@ -101,5 +158,6 @@ func Make(me int, companions []string) *Raftee {
 			}
 		}
 	}()
+
 	return raft
 }

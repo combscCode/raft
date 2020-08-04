@@ -1,8 +1,10 @@
 package raft
 
 import (
+	"math/rand"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func cleanup(rafts []*Raftee) {
@@ -18,17 +20,48 @@ func setAddresses(addresses []string, startingPort int) {
 		addresses[i] = "localhost:" + strconv.Itoa(startingPort+i)
 	}
 }
-func TestCommunication(t *testing.T) {
-	const nraft = 2
 
+func TestLeadership0(t *testing.T) {
+	rand.Seed(time.Now().Unix())
+	const nraft = 3
 	var raftees []*Raftee = make([]*Raftee, nraft)
 	var addresses []string = make([]string, nraft)
 	defer cleanup(raftees)
+	setAddresses(addresses, 5000)
+	starttime := time.Now()
+	for i := 0; i < nraft; i++ {
+		raftees[i] = Make(i, addresses)
+	}
 
+	for i, raftee := range raftees {
+		if l := raftee.leadershipStatus; l != follower {
+			t.Fatalf("Expected raftee %v to be follower, was actually %v, time elapsed: %v", i, l, time.Since(starttime))
+		}
+	}
+
+	time.Sleep(time.Millisecond * time.Duration(electionTimeoutInterval+electionTimeoutShortest))
+
+	allAreFollowers := true
+	for _, raftee := range raftees {
+		if l := raftee.leadershipStatus; l != follower {
+			allAreFollowers = false
+		}
+	}
+
+	if allAreFollowers {
+		t.Fatalf("Expected some raftee to not be a follower, all are.")
+	}
+}
+func TestCommunication0(t *testing.T) {
+	const nraft = 2
+	var raftees []*Raftee = make([]*Raftee, nraft)
+	var addresses []string = make([]string, nraft)
+	defer cleanup(raftees)
 	setAddresses(addresses, 5000)
 	for i := 0; i < nraft; i++ {
 		raftees[i] = Make(i, addresses)
 	}
+
 	var msg LogEntry = "Potato"
 	e := raftees[0].appendToOtherLog(addresses[1], msg)
 	if e != nil {
