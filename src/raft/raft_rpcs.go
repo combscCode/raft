@@ -1,21 +1,35 @@
 package raft
 
-// AddToLogArgs is the args required for the corresponding RPC call
-type AddToLogArgs struct {
-	ToAdd LogEntry
+// AppendEntriesArgs is the args specified in the white paper
+type AppendEntriesArgs struct {
+	Term         int
+	LeaderID     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
+	UniqueID     int64 // Used for testing purposes
 }
 
-// AddToLogReply is the reply required for the corresponding RPC call
-type AddToLogReply struct {
-	Success bool
+// AppendEntriesReply is the response specified in the white paper
+type AppendEntriesReply struct {
+	Term     int
+	Success  bool
+	UniqueID int64 // Used for testing purposes
 }
 
-// AddToLog is used for testing connections between raft instances
-func (raft *Raftee) AddToLog(args *AddToLogArgs, reply *AddToLogReply) error {
+// AppendEntries is currently only used for heartbeat.
+func (raft *Raftee) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) error {
 	raft.mu.Lock()
 	defer raft.mu.Unlock()
 
-	raft.log = append(raft.log, args.ToAdd)
-	reply.Success = true
+	// Deal with Heartbeat logic
+	// If Stop() returns true, no need to reset timer because raftee has become radicalized.
+	if raft.electionTimer.Stop() {
+		raft.electionTimer.Reset(raft.electionTimeout)
+	}
+
+	raft.log = append(raft.log, args.Entries...)
+	reply.Term = raft.currentTerm
 	return nil
 }

@@ -32,7 +32,7 @@ func DPrintfRaft(format string, a ...interface{}) (n int, err error) {
 }
 
 // DebugRaft2 ...
-const DebugRaft2 = 1
+const DebugRaft2 = 0
 
 // DPrintfRaft2 ...
 func DPrintfRaft2(format string, a ...interface{}) (n int, err error) {
@@ -100,9 +100,10 @@ func (raft *Raftee) isdead() bool {
 
 // used for testing communication between raft instances
 func (raft *Raftee) appendToOtherLog(address string, toAppend LogEntry) error {
-	args := &AddToLogArgs{toAppend}
-	reply := &AddToLogReply{}
-	common.Call(address, "Raftee.AddToLog", args, reply)
+	args := &AppendEntriesArgs{}
+	args.Entries = []LogEntry{toAppend}
+	reply := &AppendEntriesReply{}
+	common.Call(address, "Raftee.AppendEntries", args, reply)
 	return nil
 }
 
@@ -117,16 +118,6 @@ func (raft *Raftee) becomeCandidate() {
 	// TODO: Send out votes
 	raft.mu.Unlock()
 	DPrintfRaft2("End becomeCandidate for Raftee(%v)\n", raft.me)
-}
-
-func (raft *Raftee) consumeHeartbeat() {
-	raft.mu.Lock()
-	// if Stop() returns false, the raftee will become a candidate.
-	if raft.electionTimer.Stop() {
-		// If the heartbeat comes before the election timeout is triggered, reset the timeout
-		raft.electionTimer.Reset(raft.electionTimeout)
-	}
-	raft.mu.Unlock()
 }
 
 // Make returns a raftee to an application that wants to use
