@@ -15,6 +15,14 @@ func Nrand() int64 {
 	return x
 }
 
+// Min returns min since golang's standard library sucks I guess??
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Call sends an RPC to the rpcname handler on server srv
 // with arguments args, waits for the reply, and leaves the
 // reply in reply. the reply argument should be a pointer

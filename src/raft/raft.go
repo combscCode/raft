@@ -54,7 +54,14 @@ const electionTimeoutShortest = 150
 const electionTimeoutInterval = 150
 
 // LogEntry is the type that is used for the Raft Log
-type LogEntry string
+type LogEntry struct {
+	Command string
+	Term    int
+}
+
+func (l LogEntry) String() string {
+	return fmt.Sprintf("{%v, %v}", l.Command, l.Term)
+}
 
 // Raftee is the data associated with an instance of the Raft Algorithm
 type Raftee struct {
@@ -68,6 +75,7 @@ type Raftee struct {
 	log              []LogEntry
 	electionTimeout  time.Duration
 	electionTimer    *time.Timer
+	commitIndex      int
 	dead             int32 // for testing
 	rpcCount         int32
 	testingID        int64
@@ -96,15 +104,6 @@ func (raft *Raftee) Kill() {
 // isdead returns true if the raftee has been killed
 func (raft *Raftee) isdead() bool {
 	return atomic.LoadInt32(&raft.dead) != 0
-}
-
-// used for testing communication between raft instances
-func (raft *Raftee) appendToOtherLog(address string, toAppend LogEntry) error {
-	args := &AppendEntriesArgs{}
-	args.Entries = []LogEntry{toAppend}
-	reply := &AppendEntriesReply{}
-	common.Call(address, "Raftee.AppendEntries", args, reply)
-	return nil
 }
 
 // becomeCandidate changes the raftee to a candidate and sends out votes.

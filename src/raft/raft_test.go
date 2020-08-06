@@ -120,7 +120,7 @@ func TestLeadership2(t *testing.T) {
 }
 
 // Tests that raftees can communicate with one another and append to each other's logs
-func TestCommunication0(t *testing.T) {
+func TestAppendEntries0(t *testing.T) {
 	const nraft = 2
 	var raftees []*Raftee = make([]*Raftee, nraft)
 	var addresses []string = make([]string, nraft)
@@ -130,23 +130,19 @@ func TestCommunication0(t *testing.T) {
 		raftees[i] = Make(i, addresses)
 	}
 
-	var msg LogEntry = "Potato"
-	e := raftees[0].appendToOtherLog(addresses[1], msg)
-	if e != nil {
-		t.Fatalf("Couldn't append to other log, %v", e)
+	var msg LogEntry = LogEntry{"Potato", 1}
+	args := &AppendEntriesArgs{
+		Term:         1,
+		LeaderID:     1,
+		PrevLogIndex: -1,
+		PrevLogTerm:  0,
+		Entries:      []LogEntry{msg},
+		LeaderCommit: 0,
 	}
-	e = raftees[0].appendToOtherLog(addresses[1], msg)
-	if e != nil {
-		t.Fatalf("Couldn't append to other log, %v", e)
+	reply := &AppendEntriesReply{}
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != 1 || raftees[0].log[0].Command != msg.Command {
+		t.Fatalf("Failed to append entry, expected [[Potato, 1]], got %v", raftees[0].log)
 	}
-	e = raftees[1].appendToOtherLog(addresses[0], msg)
-	if e != nil {
-		t.Fatalf("Couldn't append to other log, %v", e)
-	}
-	if len(raftees[1].log) != 2 || raftees[1].log[0] != msg || raftees[1].log[1] != msg {
-		t.Fatalf("Append to log didn't go through. Expected [potato], got %v", raftees[1].log)
-	}
-	if len(raftees[0].log) != 1 || raftees[0].log[0] != msg {
-		t.Fatalf("Append to log changed the local log. Expected [], got %v", raftees[0].log)
-	}
+
 }
