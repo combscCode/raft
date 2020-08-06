@@ -8,6 +8,18 @@ import (
 	"time"
 )
 
+func logSlicesEqual(a, b []LogEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if a[i].Term != b[i].Term || a[i].Command != b[i].Command {
+			return false
+		}
+	}
+	return true
+}
+
 func cleanup(rafts []*Raftee) {
 	for _, raft := range rafts {
 		if raft != nil {
@@ -119,7 +131,7 @@ func TestLeadership2(t *testing.T) {
 	}
 }
 
-// Tests that raftees can communicate with one another and append to each other's logs
+// Tests that AppendEntries RPC works when we expect it to
 func TestAppendEntries0(t *testing.T) {
 	const nraft = 2
 	var raftees []*Raftee = make([]*Raftee, nraft)
@@ -130,19 +142,59 @@ func TestAppendEntries0(t *testing.T) {
 		raftees[i] = Make(i, addresses)
 	}
 
-	var msg LogEntry = LogEntry{"Potato", 1}
+	entries := []LogEntry{LogEntry{"My", 1}}
 	args := &AppendEntriesArgs{
 		Term:         1,
 		LeaderID:     1,
 		PrevLogIndex: -1,
 		PrevLogTerm:  0,
-		Entries:      []LogEntry{msg},
+		Entries:      entries,
 		LeaderCommit: 0,
 	}
+	// Test appending just one entry to empty log
 	reply := &AppendEntriesReply{}
 	raftees[0].AppendEntries(args, reply)
-	if len(raftees[0].log) != 1 || raftees[0].log[0].Command != msg.Command {
-		t.Fatalf("Failed to append entry, expected [[Potato, 1]], got %v", raftees[0].log)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Test appending entry to non-empty log
+	entries = append(entries, LogEntry{"name's", 1})
+	args.Entries = []LogEntry{entries[1]}
+	args.PrevLogIndex = 0
+	args.PrevLogTerm = 1
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Test appending entries some of which exist in the log
+	entries = append(entries, LogEntry{"J", 1})
+	args.Entries = entries
+	args.PrevLogIndex = -1
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Test appending entries that are all already in the log
+	args.Entries = entries[1:]
+	args.PrevLogIndex = 0
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
 	}
 
 }
