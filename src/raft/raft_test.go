@@ -13,7 +13,7 @@ func logSlicesEqual(a, b []LogEntry) bool {
 		return false
 	}
 	for i := 0; i < len(a); i++ {
-		if a[i].Term != b[i].Term || a[i].Command != b[i].Command {
+		if a[i] != b[i] {
 			return false
 		}
 	}
@@ -99,37 +99,37 @@ func TestLeadership1(t *testing.T) {
 }
 
 // Tests that someone will become a leader after the group is initialized as all followers.
-func TestLeadership2(t *testing.T) {
-	rand.Seed(time.Now().Unix())
-	const nraft = 3
-	var raftees []*Raftee = make([]*Raftee, nraft)
-	var addresses []string = make([]string, nraft)
-	defer cleanup(raftees)
-	setAddresses(addresses, 5000)
-	starttime := time.Now()
-	for i := 0; i < nraft; i++ {
-		raftees[i] = Make(i, addresses)
-	}
+// func TestLeadership2(t *testing.T) {
+// 	rand.Seed(time.Now().Unix())
+// 	const nraft = 3
+// 	var raftees []*Raftee = make([]*Raftee, nraft)
+// 	var addresses []string = make([]string, nraft)
+// 	defer cleanup(raftees)
+// 	setAddresses(addresses, 5000)
+// 	starttime := time.Now()
+// 	for i := 0; i < nraft; i++ {
+// 		raftees[i] = Make(i, addresses)
+// 	}
 
-	for i, raftee := range raftees {
-		if l := raftee.leadershipStatus; l != follower {
-			t.Fatalf("Expected raftee %v to be follower, was actually %v, time elapsed: %v", i, l, time.Since(starttime))
-		}
-	}
+// 	for i, raftee := range raftees {
+// 		if l := raftee.leadershipStatus; l != follower {
+// 			t.Fatalf("Expected raftee %v to be follower, was actually %v, time elapsed: %v", i, l, time.Since(starttime))
+// 		}
+// 	}
 
-	time.Sleep(time.Millisecond * time.Duration(electionTimeoutInterval+electionTimeoutShortest))
+// 	time.Sleep(time.Millisecond * time.Duration(electionTimeoutInterval+electionTimeoutShortest))
 
-	noLeader := true
-	for _, raftee := range raftees {
-		if l := raftee.leadershipStatus; l == leader {
-			noLeader = false
-		}
-	}
+// 	noLeader := true
+// 	for _, raftee := range raftees {
+// 		if l := raftee.leadershipStatus; l == leader {
+// 			noLeader = false
+// 		}
+// 	}
 
-	if noLeader {
-		t.Fatalf("Expected some raftee to be a leader, none are.")
-	}
-}
+// 	if noLeader {
+// 		t.Fatalf("Expected some raftee to be a leader, none are.")
+// 	}
+// }
 
 // Tests that AppendEntries RPC works when we expect it to
 func TestAppendEntries0(t *testing.T) {
@@ -195,6 +195,71 @@ func TestAppendEntries0(t *testing.T) {
 	}
 	if !reply.Success {
 		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Test overwriting some entries
+	args.Entries = []LogEntry{LogEntry{"game's", 2}}
+	args.PrevLogIndex = 0
+	args.PrevLogTerm = 1
+	entries = append(entries[:1], LogEntry{"game's", 2})
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+}
+
+// Tests that the AppendEntries RPC fails when expected
+func TestAppendEntries1(t *testing.T) {
+	const nraft = 2
+	var raftees []*Raftee = make([]*Raftee, nraft)
+	var addresses []string = make([]string, nraft)
+	defer cleanup(raftees)
+	setAddresses(addresses, 5000)
+	for i := 0; i < nraft; i++ {
+		raftees[i] = Make(i, addresses)
+	}
+
+	raftees[0].currentTerm = 2
+	entries := []LogEntry{LogEntry{"My", 2}, LogEntry{"Name's", 2}, LogEntry{"J", 2}}
+	args := &AppendEntriesArgs{
+		Term:         2,
+		LeaderID:     1,
+		PrevLogIndex: -1,
+		PrevLogTerm:  0,
+		Entries:      entries,
+		LeaderCommit: 0,
+	}
+	reply := &AppendEntriesReply{}
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !reply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Test term < currentTerm
+	args.Term = 1
+	raftees[0].AppendEntries(args, reply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Logs don't match, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if reply.Success {
+		t.Fatalf("Expected reply to be failure, current raft log: %v, reply %v\n", raftees[0].log, reply)
+	}
+	args.Term = 2
+	// test unmatching prevlogterm
+	args.Entries = []LogEntry{LogEntry{"Millz", 2}}
+	args.PrevLogIndex = 2
+	args.PrevLogTerm = 1
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Logs don't match, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if reply.Success {
+		t.Fatalf("Expected reply to be failure, current raft log: %v, reply %v\n", raftees[0].log, reply)
 	}
 
 }
