@@ -69,16 +69,22 @@ type Raftee struct {
 	l                net.Listener
 	companions       []string
 	me               int // this Raftee's candidateId
-	leadershipStatus leadership
-	currentTerm      int
-	votedFor         int
-	log              []LogEntry
 	electionTimeout  time.Duration
 	electionTimer    *time.Timer
-	commitIndex      int
-	dead             int32 // for testing
-	rpcCount         int32
-	testingID        int64
+	leadershipStatus leadership
+	// Persistent state
+	currentTerm int
+	votedFor    int
+	log         []LogEntry
+	// Volatile state
+	commitIndex int   // index of highest log entry known to be committed
+	lastApplied int   // index of highest log entry applied to state machine
+	nextIndex   []int // for each server, index of the next log entry to send to that server
+	matchIndex  []int // for each server, index of the highest log entry known to be replicated
+	// Testing info
+	dead      int32
+	rpcCount  int32
+	testingID int64
 }
 
 // NewRaftee initializes a Raftee object
@@ -106,16 +112,26 @@ func (raft *Raftee) isdead() bool {
 	return atomic.LoadInt32(&raft.dead) != 0
 }
 
+// Saves the state of the raftee to disk or something like that.
+func (raft *Raftee) savePersistentState() {
+	// TODO: Implement
+}
+
+// Mimic a crash by wiping all volatile state on this machine
+func (raft *Raftee) deleteVolatileState() {
+	// TODO: Implement
+}
+
 // becomeCandidate changes the raftee to a candidate and sends out votes.
 func (raft *Raftee) becomeCandidate() {
 	DPrintfRaft2("Begin becomeCandidate for Raftee(%v)\n", raft.me)
 	raft.mu.Lock()
+	defer raft.mu.Unlock()
 	if raft.leadershipStatus == candidate {
 		panic(fmt.Sprintf("Something's gone wrong, Raftee(%v) called becomeCandidate() when already candidate.", raft.me))
 	}
 	raft.leadershipStatus = candidate
 	// TODO: Send out votes
-	raft.mu.Unlock()
 	DPrintfRaft2("End becomeCandidate for Raftee(%v)\n", raft.me)
 }
 

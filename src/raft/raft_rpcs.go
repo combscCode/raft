@@ -23,10 +23,31 @@ type AppendEntriesReply struct {
 	UniqueID int64 // Used for testing purposes
 }
 
-// AppendEntries is currently only used for heartbeat.
+// RequestVoteArgs ...
+type RequestVoteArgs struct {
+	Term         int
+	CandidateID  int
+	LastLogIndex int
+	LastLogTerm  int
+	UniqueID     int64
+}
+
+// RequestVoteReply ...
+type RequestVoteReply struct {
+	Term        int
+	VoteGranted Bool
+	UniqueID    int64
+}
+
+// AppendEntries is used by the leader to coordinate with followers
 func (raft *Raftee) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) error {
 	raft.mu.Lock()
 	defer raft.mu.Unlock()
+	defer raft.savePersistentState()
+
+	// What to do about race condition here, what happens if we receive an appendentries from a new
+	// leader, lock the mutex, the electionTimer gets triggered, and we end up becoming a candidate
+	// even though a new leader already exists...
 
 	// Deal with Heartbeat logic
 	// If Stop() returns true, no need to reset timer because raftee has become radicalized.
@@ -73,5 +94,39 @@ func (raft *Raftee) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesR
 	if args.LeaderCommit > raft.commitIndex {
 		raft.commitIndex = common.Min(args.LeaderCommit, len(raft.log)-1)
 	}
+	return nil
+}
+
+// RequestVote is used to collect votes in the candidate election process
+func (raft *Raftee) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	defer raft.savePersistentState()
+
+	// Deal with Heartbeat logic
+	// If Stop() returns true, no need to reset timer because raftee has become radicalized.
+	if raft.electionTimer.Stop() {
+		raft.electionTimer.Reset(raft.electionTimeout)
+	}
+
+	reply.Term = raft.currentTerm
+	// If the RPC has a lower term than the local current term, reject the RPC
+	if args.Term < raft.currentTerm {
+		reply.VoteGranted = false
+		return nil
+	}
+	// If the RPC has a less up-to-date log than the local log, reject the RPC
+	if args.LastLogTerm < raft.currentTerm || (args.LastLogTerm == raft.currentTerm && args.LastLogIndex < len(raft.log)-1) {
+		reply.VoteGranted = false
+		return nil
+	}
+	// If we have already voted for someone else, reject the RPC
+	if raft.votedFor != -1 && raft.votedFor != args.CandidateID {
+		reply.VoteGranted = false
+		return nil
+	}
+	// Vote for the candidate
+	raft.votedFor = args.CandidateID
+	reply.VoteGranted = true
 	return nil
 }
