@@ -263,3 +263,118 @@ func TestAppendEntries1(t *testing.T) {
 	}
 
 }
+
+func TestRequestVote0(t *testing.T) {
+	const nraft = 2
+	var raftees []*Raftee = make([]*Raftee, nraft)
+	var addresses []string = make([]string, nraft)
+	defer cleanup(raftees)
+	setAddresses(addresses, 5000)
+	for i := 0; i < nraft; i++ {
+		raftees[i] = Make(i, addresses)
+	}
+
+	raftees[0].currentTerm = 2
+	entries := []LogEntry{LogEntry{"My", 2}, LogEntry{"Name's", 2}, LogEntry{"J", 2}}
+	eargs := &AppendEntriesArgs{
+		Term:         2,
+		LeaderID:     1,
+		PrevLogIndex: -1,
+		PrevLogTerm:  0,
+		Entries:      entries,
+		LeaderCommit: 0,
+	}
+	ereply := &AppendEntriesReply{}
+	raftees[0].AppendEntries(eargs, ereply)
+	if len(raftees[0].log) != len(entries) || !logSlicesEqual(entries, raftees[0].log) {
+		t.Fatalf("Failed to append entry, expected %v, got %v\n", entries, raftees[0].log)
+	}
+	if !ereply.Success {
+		t.Fatalf("Expected reply to be success, current raft log: %v\n", raftees[0].log)
+	}
+
+	// Check that requestvote works when expected to
+	args := &RequestVoteArgs{
+		Term:         2,
+		CandidateID:  1,
+		LastLogIndex: 2,
+		LastLogTerm:  2,
+	}
+	reply := &RequestVoteReply{}
+	raftees[0].RequestVote(args, reply)
+	if !reply.VoteGranted {
+		t.Fatalf("Expected vote to succeed, reply: %v", reply)
+	}
+	if raftees[0].votedFor != 1 {
+		t.Fatalf("Expected raftee to vote for 1, instead voted for %v", raftees[0].votedFor)
+	}
+	raftees[0].RequestVote(args, reply)
+	if !reply.VoteGranted {
+		t.Fatalf("Expected vote to succeed, reply: %v", reply)
+	}
+	if raftees[0].votedFor != 1 {
+		t.Fatalf("Expected raftee to vote for 1, instead voted for %v", raftees[0].votedFor)
+	}
+	raftees[0].votedFor = -1
+	args.LastLogTerm = 3
+	raftees[0].RequestVote(args, reply)
+	if !reply.VoteGranted {
+		t.Fatalf("Expected vote to succeed, reply: %v", reply)
+	}
+	if raftees[0].votedFor != 1 {
+		t.Fatalf("Expected raftee to vote for 1, instead voted for %v", raftees[0].votedFor)
+	}
+	raftees[0].votedFor = -1
+	args.LastLogTerm = 2
+	args.LastLogIndex = 3
+	raftees[0].RequestVote(args, reply)
+	if !reply.VoteGranted {
+		t.Fatalf("Expected vote to succeed, reply: %v", reply)
+	}
+	if raftees[0].votedFor != 1 {
+		t.Fatalf("Expected raftee to vote for 1, instead voted for %v", raftees[0].votedFor)
+	}
+	args.LastLogIndex = 2
+	args.CandidateID = 2
+	raftees[0].RequestVote(args, reply)
+	if reply.VoteGranted {
+		t.Fatalf("Expected vote to fail, reply: %v", reply)
+	}
+	if raftees[0].votedFor != 1 {
+		t.Fatalf("Expected raftee to vote for 1, instead voted for %v", raftees[0].votedFor)
+	}
+	args.CandidateID = 1
+	raftees[0].votedFor = -1
+
+	// Reject when log out of date
+	args.LastLogIndex = 1
+	raftees[0].RequestVote(args, reply)
+	if reply.VoteGranted {
+		t.Fatalf("Expected vote to fail, reply: %v", reply)
+	}
+	if raftees[0].votedFor != -1 {
+		t.Fatalf("Expected raftee to vote for -1, instead voted for %v", raftees[0].votedFor)
+	}
+	args.LastLogIndex = 2
+	args.LastLogTerm = 1
+	raftees[0].RequestVote(args, reply)
+	if reply.VoteGranted {
+		t.Fatalf("Expected vote to fail, reply: %v", reply)
+	}
+	if raftees[0].votedFor != -1 {
+		t.Fatalf("Expected raftee to vote for -1, instead voted for %v", raftees[0].votedFor)
+	}
+	args.LastLogTerm = 2
+
+	// Reject when term out of date
+	args.Term = 1
+	raftees[0].RequestVote(args, reply)
+	if reply.VoteGranted {
+		t.Fatalf("Expected vote to fail, reply: %v", reply)
+	}
+	if raftees[0].votedFor != -1 {
+		t.Fatalf("Expected raftee to vote for -1, instead voted for %v", raftees[0].votedFor)
+	}
+	args.Term = 2
+
+}

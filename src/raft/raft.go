@@ -74,7 +74,7 @@ type Raftee struct {
 	leadershipStatus leadership
 	// Persistent state
 	currentTerm int
-	votedFor    int
+	votedFor    int // Initialized to -1
 	log         []LogEntry
 	// Volatile state
 	commitIndex int   // index of highest log entry known to be committed
@@ -96,6 +96,7 @@ func NewRaftee(me int, companions []string) *Raftee {
 	raft.leadershipStatus = follower
 	raft.electionTimeout = time.Millisecond * time.Duration(rand.Int63n(electionTimeoutInterval)+electionTimeoutShortest)
 	raft.electionTimer = time.AfterFunc(raft.electionTimeout, raft.becomeCandidate)
+	raft.votedFor = -1
 	return raft
 }
 

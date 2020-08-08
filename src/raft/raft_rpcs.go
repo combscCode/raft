@@ -35,7 +35,7 @@ type RequestVoteArgs struct {
 // RequestVoteReply ...
 type RequestVoteReply struct {
 	Term        int
-	VoteGranted Bool
+	VoteGranted bool
 	UniqueID    int64
 }
 
